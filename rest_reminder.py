@@ -2,16 +2,18 @@
 """Pomodoro-style rest reminder with a periodic eye-comfort nudge.
 
 Cycles between work and break periods. When a work period ends, a topmost
-popup reminds you to rest. During the work period, a native Windows
-notification (the bottom-right toast) asks how your eyes feel on a fixed
-cadence — every 5 minutes by default, independently of the cycle length.
-A 1-second timer re-asserts the popup's topmost flag so it climbs back above
-all windows until you click OK (same trick as the legacy PowerShell version:
-setting topmost is not subject to Windows' foreground lock).
+popup reminds you to rest. During the work period, a Windows notification-area
+balloon asks how your eyes feel on a fixed cadence — every 5 minutes by
+default, independently of the cycle length. A 1-second timer re-asserts the
+popup's topmost flag so it climbs back above all windows until you click OK
+(same trick as the legacy PowerShell version: setting topmost is not subject
+to Windows' foreground lock).
 
-The eye-comfort nudge uses the real Windows toast API, not a hand-drawn window:
-it needs no click, fades into the Action Center on its own, and is raised
-through PowerShell's WinRT bindings so no third-party Python package is needed.
+The eye-comfort nudge needs no click and hides itself. It uses a notification
+balloon via System.Windows.Forms.NotifyIcon rather than a WinRT toast, because a
+toast only renders when its sender AUMID is registered as an installed app —
+from a bare checkout it silently renders nothing. Both paths are driven through
+PowerShell's built-in .NET bindings, so no third-party Python package is needed.
 
 Usage:
     python rest_reminder.py                      # defaults: 20min work, 20s break, 30 cycles
@@ -25,22 +27,25 @@ Options:
     -w, --work-time    work time per cycle, in seconds (default: 1200)
     -b, --break-time   break time per cycle, in seconds (default: 20)
     -c, --cycles       total number of cycles (default: 30)
-    -g, --gentle       use a Windows toast for the break reminder too, instead
-                       of the focus-stealing popup (falls back to the popup if
-                       the toast cannot be shown)
-        --eye-check    send the eye-comfort toast on the --eye-interval
-                       cadence (default: on; use --no-eye-check to disable)
-        --eye-interval seconds between eye-comfort toasts during work
+    -g, --gentle       use a Windows notification for the break reminder too,
+                       instead of the focus-stealing popup (falls back to the
+                       popup if the notification cannot be shown)
+        --eye-check    send the eye-comfort notification on the
+                       --eye-interval cadence (default: on; use --no-eye-check
+                       to disable)
+        --eye-interval seconds between eye-comfort notifications during work
                        (default: 300, i.e. the 20-20-20 rule)
+        --eye-method   'balloon' (default, needs no app registration) or
+                       'toast' (WinRT toast, only renders for a registered app)
+        --eye-seconds  how long the balloon stays on screen (default: 8)
     -h, --help         show the built-in help message
 
 Notes:
-    - Platform: Windows. The topmost re-assertion trick relies on Windows'
-      foreground lock and on Win32 window flags.
-    - Both notifications are best-effort. Windows silently suppresses toasts
-      while Focus Assist / Do Not Disturb is on, which this script cannot
-      detect, so a hidden toast is reported as "not confirmed" rather than as
-      an error.
+    - Platform: Windows.
+    - Notifications are best-effort. Windows may suppress them (Focus Assist /
+      Do Not Disturb) and gives no confirmation that anything was painted, so a
+      successful call is reported as "acceptance unconfirmed" rather than as
+      proof that a window appeared.
     - Close the popup with the OK button or the Enter key. The popup cannot be
       hidden behind other windows while it is open; use -g to avoid it.
     - Stop the script at any time with Ctrl+C.
@@ -58,16 +63,41 @@ POPUP_WIDTH = 420
 POPUP_HEIGHT = 200
 
 
-# PowerShell snippet that raises a native Windows toast via the WinRT XML API.
+# PowerShell snippet that raises a notification-area balloon via
+# System.Windows.Forms.NotifyIcon.
 #
-# Arguments arrive through environment variables (RR_TITLE / RR_MESSAGE) rather
-# than named parameters: `powershell -Command <script> -Title x` does NOT bind
-# those to the snippet's param() block, and -File is unavailable because it is
+# A balloon is used instead of a WinRT toast on purpose. Showing a toast requires
+# the sender's AUMID to be registered (a Start-menu entry carrying a
+# System.AppUserModel.ID): with an unregistered AUMID, Show() succeeds and
+# renders nothing at all, which is exactly the bug that made this feature look
+# broken. This project is handed out as bare .py files, so it must not depend on
+# an installer having registered an application identity. NotifyIcon is the older
+# Win32 path and needs no registration whatsoever.
+#
+# Arguments arrive through environment variables (RR_TITLE / RR_MESSAGE /
+# RR_SECONDS) rather than named parameters: `powershell -Command <script>
+# -Title x` does NOT bind those to the snippet's param() block, and -File is
 # blocked by the default execution policy on many machines.
-#
-# Note: [System.Security.SecurityElement]::Escape() is called as a method, not
-# through a script block. `$(& $esc $Title)` is a syntax error in PowerShell and
-# would make every toast attempt fail silently.
+_BALLOON_PS = r"""
+$ErrorActionPreference = 'Stop'
+Add-Type -AssemblyName System.Windows.Forms
+Add-Type -AssemblyName System.Drawing
+$ni = New-Object System.Windows.Forms.NotifyIcon
+$ni.Icon = [System.Drawing.SystemIcons]::Information
+$ni.BalloonTipTitle = $env:RR_TITLE
+$ni.BalloonTipText = $env:RR_MESSAGE
+$ni.BalloonTipIcon = [System.Windows.Forms.ToolTipIcon]::Info
+$ni.Visible = $true
+$ni.ShowBalloonTip([int]$env:RR_SECONDS * 1000)
+Start-Sleep -Seconds ([int]$env:RR_SECONDS + 1)
+$ni.Visible = $false
+$ni.Dispose()
+"""
+
+
+# WinRT toast variant, kept for --eye-method toast. See the note above: this only
+# renders when the AUMID passed to CreateToastNotifier is registered, which
+# 'Rest Reminder' is not.
 _TOAST_PS = r"""
 $ErrorActionPreference = 'Stop'
 $null = [Windows.UI.Notifications.ToastNotificationManager, Windows.UI.Notifications, ContentType = WindowsRuntime]
@@ -80,31 +110,27 @@ $toast = New-Object Windows.UI.Notifications.ToastNotification $xml
 """
 
 
-def show_toast(message, title="Health Reminder"):
-    """Raise a native Windows toast. Returns (ok, detail).
+def _run_ps(snippet, title, message, seconds=None):
+    """Run a notification snippet. Returns (ok, detail).
 
-    A toast is exactly the notification the OS puts in the bottom-right corner:
-    it requires no click and disappears by itself. Any failure (non-Windows, no
-    WinRT, PowerShell unavailable) is reported instead of raised, so callers can
-    fall back to the popup.
-
-    A return of ok=True means PowerShell accepted the call. Windows gives no
-    confirmation that a toast was actually painted: Focus Assist can swallow it
-    silently, so detail reports that the result is unconfirmed.
+    ok=True means PowerShell accepted the call. Windows gives no confirmation
+    that anything was painted, so the detail says so explicitly.
     """
     if not sys.platform.startswith("win"):
-        return False, "native toasts require Windows"
+        return False, "Windows notifications require Windows"
 
     env = dict(os.environ)
     env["RR_TITLE"] = title
     env["RR_MESSAGE"] = message
+    if seconds is not None:
+        env["RR_SECONDS"] = str(seconds)
     try:
         result = subprocess.run(
             ["powershell", "-NoProfile", "-NonInteractive",
-             "-WindowStyle", "Hidden", "-Command", _TOAST_PS],
+             "-WindowStyle", "Hidden", "-Command", snippet],
             capture_output=True,
             text=True,
-            timeout=30,
+            timeout=60,
             env=env,
         )
     except (OSError, subprocess.SubprocessError) as exc:
@@ -114,6 +140,24 @@ def show_toast(message, title="Health Reminder"):
         detail = (result.stderr or result.stdout or "").strip().splitlines()
         return False, f"PowerShell exited {result.returncode}: {detail[0] if detail else 'no output'}"
     return True, "sent (acceptance unconfirmed; Focus Assist may suppress it)"
+
+
+def show_balloon(message, title="Eye check", seconds=8):
+    """Show a notification-area balloon. Returns (ok, detail).
+
+    Needs no AUMID registration, so it works from a bare checkout. The balloon
+    requires no click and hides itself after the system timeout.
+    """
+    return _run_ps(_BALLOON_PS, title, message, seconds=seconds)
+
+
+def show_toast(message, title="Eye check"):
+    """Show a WinRT toast. Returns (ok, detail).
+
+    Only renders when the notifier's AUMID is registered; kept for
+    --eye-method toast.
+    """
+    return _run_ps(_TOAST_PS, title, message)
 
 
 def show_notification(root, message, title="Health Reminder", timeout=30):
@@ -193,13 +237,21 @@ def countdown(seconds, activity):
     print()
 
 
-def run_work_period(seconds, eye_interval, activity="Work countdown"):
-    """Count down a work period, raising an eye-comfort toast on a fixed cadence.
+def notify(method, message, title="Eye check", seconds=8):
+    """Dispatch to the selected notification method. Returns (ok, detail)."""
+    if method == "toast":
+        return show_toast(message, title)
+    return show_balloon(message, title, seconds=seconds)
+
+
+def run_work_period(seconds, eye_interval, eye_method="balloon", eye_seconds=8,
+                    activity="Work countdown"):
+    """Count down a work period, raising an eye-comfort notification on a cadence.
 
     `eye_interval` is independent of the cycle length: with the defaults the
-    work period is 20 minutes and the toast fires every 5, 10 and 15 minutes.
-    That is the point — the 20-20-20 rule is a 20-minute rule for the *eyes*,
-    so it should not stretch just because the pomodoro got longer.
+    work period is 20 minutes and the notification fires every 5, 10 and 15
+    minutes. That is the point — the 20-20-20 rule is a 20-minute rule for the
+    *eyes*, so it should not stretch just because the pomodoro got longer.
     """
     next_eye = eye_interval if eye_interval > 0 else None
     for sec in range(seconds, 0, -1):
@@ -207,16 +259,15 @@ def run_work_period(seconds, eye_interval, activity="Work countdown"):
         print(f"\r{activity}: {sec:4d}s remaining", end="", flush=True)
 
         if next_eye is not None and elapsed >= next_eye:
-            ok, detail = show_toast(
+            ok, detail = notify(
+                eye_method,
                 "How do your eyes feel? Look 20 feet away for 20 seconds, "
                 "and blink deliberately.",
                 "Eye check",
+                seconds=eye_seconds,
             )
-            if ok:
-                print(f"\r  [eye check at {elapsed // 60}m{elapsed % 60:02d}s] "
-                      f"{detail}")
-            else:
-                print(f"\r  [eye check FAILED] {detail}")
+            print(f"\r  [eye check at {elapsed // 60}m{elapsed % 60:02d}s] "
+                  f"{'ok' if ok else 'FAILED'} - {detail}")
             # Keep an absolute cadence even if this iteration ran long.
             next_eye += eye_interval
 
@@ -252,8 +303,17 @@ def main():
     parser.add_argument("--no-eye-check", dest="eye_check", action="store_false",
                         help="disable the eye-comfort toast")
     parser.add_argument("--eye-interval", type=int, default=300, metavar="SECONDS",
-                        help="seconds between eye-comfort toasts during work "
-                             "(default: 300, i.e. the 20-20-20 rule)")
+                        help="seconds between eye-comfort notifications during "
+                             "work (default: 300, i.e. the 20-20-20 rule)")
+    parser.add_argument("--eye-method", choices=("balloon", "toast"), default="balloon",
+                        help="how to show the eye-comfort notification: "
+                             "'balloon' uses the notification-area balloon, which "
+                             "needs no app registration (default); 'toast' uses the "
+                             "WinRT toast, which only renders if the sender is a "
+                             "registered app")
+    parser.add_argument("--eye-seconds", type=int, default=8, metavar="SECONDS",
+                        help="how long the balloon stays on screen (default: 8; "
+                             "Windows may use its own timeout)")
     parser.add_argument("--popup-timeout", type=int, default=30, metavar="SECONDS",
                         help="auto-close the break popup after SECONDS; 0 keeps it "
                              "open until dismissed (default: 30)")
@@ -270,7 +330,9 @@ def main():
         for i in range(1, args.cycles + 1):
             print(f"\n=== Work Cycle {i}/{args.cycles} ===")
             print(f"Working... (next break in {args.work_time / 60:g} minutes)")
-            run_work_period(args.work_time, args.eye_interval if args.eye_check else 0)
+            run_work_period(args.work_time,
+                            args.eye_interval if args.eye_check else 0,
+                            args.eye_method, args.eye_seconds)
 
             message = (
                 f"Work session complete! Please take a {args.break_time} second break.\n"
@@ -279,10 +341,9 @@ def main():
                 "- Drink some water"
             )
             if args.gentle:
-                ok, detail = show_toast(message, "Health Reminder")
-                print(f"Break notification: {'ok' if ok else 'failed'} - {detail}")
-                if not ok:
-                    print("Falling back to the topmost popup.")
+                ok, detail = notify(args.eye_method, message, "Health Reminder",
+                                    seconds=args.eye_seconds)
+                print(f"Break notification: {'ok' if ok else 'FAILED'} - {detail}")
             if not args.gentle or not ok:
                 show_notification(root, message, timeout=args.popup_timeout)
 
@@ -293,8 +354,9 @@ def main():
         final = "Daily work session completed! Remember to stay active!"
         ok = False
         if args.gentle:
-            ok, detail = show_toast(final, "Health Reminder")
-            print(f"Break notification: {'ok' if ok else 'failed'} - {detail}")
+            ok, detail = notify(args.eye_method, final, "Health Reminder",
+                                seconds=args.eye_seconds)
+            print(f"Break notification: {'ok' if ok else 'FAILED'} - {detail}")
         if not ok:
             show_notification(root, final, timeout=args.popup_timeout)
     except KeyboardInterrupt:

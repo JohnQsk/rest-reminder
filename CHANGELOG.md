@@ -5,6 +5,36 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.3.0] - 2026-09-24
+
+### Fixed
+
+- **The eye-comfort notification never actually appeared.** It used the WinRT
+  toast API with the AUMID `'Rest Reminder'`, which is not a registered
+  application identity. With an unregistered AUMID, `ToastNotification.Show()`
+  returns success and renders **nothing at all**, so the call looked healthy
+  while the user saw no window. Toasts require a Start-menu entry carrying a
+  `System.AppUserModel.ID`; this project ships as plain `.py` files and must not
+  depend on an installer having registered one. This also explains why every
+  third-party Python option (`win11toast`, `Windows-Toasts`, `plyer`,
+  `desktop-notifier`) has the same limitation — they all wrap the same API.
+
+### Changed
+
+- The eye-comfort notification now uses the **notification-area balloon**
+  (`System.Windows.Forms.NotifyIcon.ShowBalloonTip`) through PowerShell's
+  built-in .NET bindings: same bottom-right corner, still needs no click and no
+  third-party package, but **no AUMID registration required**, so it works from
+  a bare checkout. Verified to display on Windows 10 22H2 (19045).
+- Added `--eye-method balloon|toast` (default `balloon`). `toast` is retained
+  for anyone whose application identity *is* registered.
+- Added `--eye-seconds` (default `8`) to control how long the balloon stays on
+  screen; Windows may apply its own timeout.
+- Gentle mode (`-g`) now uses the same mechanism as the eye notification instead
+  of the toast, so it no longer silently produces nothing when the identity is
+  unregistered. As a consequence `-g` no longer needs a popup fallback: the
+  balloon is itself reliable.
+
 ## [1.2.0] - 2026-09-24
 
 ### Changed
@@ -47,9 +77,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Known limitations
 
-- Windows provides no confirmation that a toast was displayed. Focus Assist /
-  Do Not Disturb suppresses toasts silently, so the success message is reported
-  as *"acceptance unconfirmed"*.
+- Windows provides no confirmation that a notification was displayed. Focus
+  Assist / Do Not Disturb suppresses them silently, so the success message is
+  reported as *"acceptance unconfirmed"*. (Since 1.3.0 the notification itself
+  is the balloon, which needs no app registration.)
 - Windows' foreground lock can prevent the popup from ever receiving keyboard
   focus, so **Enter may not dismiss it**; clicking OK and the auto-close both
   work. `focus_force()` was tested and does not fix this.
@@ -127,6 +158,7 @@ First public release.
   are committed. The only personal data in the repository is the copyright
   holder named in `LICENSE`.
 
+[1.3.0]: https://github.com/JohnQsk/rest-reminder/releases/tag/v1.3.0
 [1.2.0]: https://github.com/JohnQsk/rest-reminder/releases/tag/v1.2.0
 [1.1.0]: https://github.com/JohnQsk/rest-reminder/releases/tag/v1.1.0
 [1.0.0]: https://github.com/JohnQsk/rest-reminder/releases/tag/v1.0.0
