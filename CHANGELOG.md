@@ -5,6 +5,43 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.1.0] - 2026-09-24
+
+### Changed
+
+- The eye-comfort reminder is now a **native Windows toast notification** (the
+  OS message that slides in from the bottom-right) instead of a hand-drawn
+  tkinter window. It requires no click and dismisses itself, as requested.
+  `--eye-log` and the one-click answer buttons are gone with the custom window;
+  the nudge is now purely a nudge.
+- The break popup **auto-closes after 30 seconds** (`--popup-timeout SECONDS`,
+  `0` to keep it open). It shows *"auto-closes in Ns"* in the final 5 seconds.
+  This was necessary because Windows' foreground lock can leave the popup
+  topmost but unable to receive keystrokes.
+- `rest_reminder.py` reports whether each notification was actually sent and
+  falls back to the popup with a visible reason instead of failing silently.
+
+### Fixed
+
+- **Native toasts never worked in `rest_reminder.py`.** The PowerShell snippet
+  used `$(& $esc $Title)`, which is a syntax error in PowerShell (the call
+  operator `&` is not valid inside a subexpression), so every toast attempt
+  exited non-zero and the script fell back to the popup without saying so.
+  Escaping now uses a direct `[System.Security.SecurityElement]::Escape()` call.
+- Toast arguments are now passed as environment variables. `powershell -Command
+  <snippet> -Title x` does **not** bind arguments to the snippet's `param()`
+  block (`-File` is required for that, but `-File` is blocked by the default
+  execution policy on many machines), so named parameters silently failed.
+
+### Known limitations
+
+- Windows provides no confirmation that a toast was displayed. Focus Assist /
+  Do Not Disturb suppresses toasts silently, so the success message is reported
+  as *"acceptance unconfirmed"*.
+- Windows' foreground lock can prevent the popup from ever receiving keyboard
+  focus, so **Enter may not dismiss it**; clicking OK and the auto-close both
+  work. `focus_force()` was tested and does not fix this.
+
 ## [1.0.0] - 2026-09-24
 
 First public release.
@@ -16,6 +53,8 @@ First public release.
   right edge, above the taskbar) asking *"how do your eyes feel?"*, with four
   one-click answers — Comfortable, Dry/gritty, Strained/sore, Blurry — plus
   *Ask me later*.
+  - *Superseded in [1.1.0]: the hand-drawn corner window was replaced by a
+    native Windows toast, and the answer buttons were dropped.*
   - The window is deliberately **non-activating**: it never steals focus, so a
     running countdown or your typing is not interrupted.
   - It answers with a single click and auto-dismisses after 45 seconds, so an
@@ -76,4 +115,5 @@ First public release.
   are committed. The only personal data in the repository is the copyright
   holder named in `LICENSE`.
 
+[1.1.0]: https://github.com/JohnQsk/rest-reminder/releases/tag/v1.1.0
 [1.0.0]: https://github.com/JohnQsk/rest-reminder/releases/tag/v1.0.0

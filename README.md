@@ -8,10 +8,11 @@ of work, a short 20-second break (with 30 cycles ≈ 10 hours of coverage).
 
 > ⚠️ **Behavior warning**: the popup deliberately re-asserts itself to the top of the
 > z-order every second (`SetWindowPos(HWND_TOPMOST)`), so it **cannot** be hidden
-> behind other windows and **cannot** be dismissed with Alt+Tab until you click **OK**
-> or press **Enter**. This is intended — it is how the first popup of the day gets
-> noticed — but it is aggressive by design. If you would rather not have your focus
-> taken, use **gentle mode** (`-Gentle` / `-g`).
+> behind other windows until you click **OK**, press **Enter**, or let it
+> **auto-close after 30 seconds** (`--popup-timeout`). This is intended — it is how
+> the first popup of the day gets noticed — but it is aggressive by design. If you
+> would rather not have your focus taken at all, use **gentle mode**
+> (`-Gentle` / `-g`), which sends a Windows toast instead.
 
 ## Requirements
 
@@ -37,24 +38,23 @@ BurntToast module, so neither needs a third-party package.
 
 ## Eye-comfort check (Python)
 
-Every cycle, before the break popup appears, a small borderless notification
-slides into the **bottom-right corner** of the screen and asks *"how do your
-eyes feel?"*:
+Every cycle, before the break popup appears, a **native Windows toast
+notification** — the familiar bottom-right message that slides in from the
+Action Center — asks *"how do your eyes feel?"*:
 
-- **Comfortable** / **Dry / gritty** / **Strained / sore** / **Blurry** —
-  one click answers and closes the window.
-- **Ask me later** — dismissed without recording a feeling.
+- **It needs no click.** The toast fades on its own after a few seconds, exactly
+  like any other Windows notification.
+- It uses the real WinRT toast API, not a hand-drawn window, and no third-party
+  package is needed (Python raises it through PowerShell's built-in WinRT
+  bindings).
+- Send it every cycle (default) or disable it with `--no-eye-check`.
 
-It is designed to be noticed without being disruptive:
-
-- It **never takes focus**, so it cannot interrupt your typing and does not
-  disturb the countdown running in the console.
-- It **auto-dismisses after 45 seconds**, so an ignored window never piles up;
-  an unanswered window is collapsed before the next cycle's check.
-- Answers print to the console, and pass `--eye-log eyes.csv` to also append
-  them to a CSV file (`timestamp, cycle, feeling, feeling_label, answer`) so you
-  can spot a trend over a day.
-- Disable the whole thing with `--no-eye-check`.
+> **Focus Assist / Do Not Disturb silently suppresses toasts.** Windows gives no
+> confirmation that a toast was painted, so the script reports the result as
+> *"sent (acceptance unconfirmed)"*. If you never see these notifications, turn
+> Focus Assist off, or check the notification settings for *Rest Reminder*.
+> Keep the eye reminder audible/visible by trusting the break popup instead if
+> toasts are being swallowed.
 
 > This is a self-report prompt, not a diagnosis. If your eyes stay sore or your
 > vision stays blurry, see an eye-care professional.
@@ -94,24 +94,24 @@ Python:
 ```powershell
 python rest_reminder.py                              # defaults
 python rest_reminder.py -w 1500 -b 30 -c 10
-python rest_reminder.py -g                           # system notification instead of the popup
-python rest_reminder.py --eye-log eyes.csv           # record how your eyes feel
-python rest_reminder.py --no-eye-check               # disable the corner check
+python rest_reminder.py -g                           # toasts only, no blocking popup
+python rest_reminder.py --no-eye-check               # break popup only
+python rest_reminder.py --popup-timeout 0            # keep the popup until dismissed
 python rest_reminder.py -w 3 -b 2 -c 1               # quick test
 python rest_reminder.py -h                           # full help
 ```
 
 ## Parameters
 
-| PowerShell     | Python            | Default | Description                        |
-| -------------- | ----------------- | ------- | ---------------------------------- |
-| `-WorkTime_s`  | `-w/--work-time`  | 1200    | work time per cycle (seconds)      |
-| `-BreakTime_s` | `-b/--break-time` | 20      | break time per cycle (seconds)     |
-| `-TotalCycles` | `-c/--cycles`     | 30      | total number of cycles             |
-| `-Gentle`      | `-g/--gentle`     | off     | toast instead of popup             |
-| —              | `--eye-check`     | on      | bottom-right eye-comfort check     |
-| —              | `--no-eye-check`  | —       | disable the eye-comfort check      |
-| —              | `--eye-log PATH`  | none    | append eye-comfort answers to CSV  |
+| PowerShell     | Python             | Default | Description                          |
+| -------------- | ------------------ | ------- | ------------------------------------ |
+| `-WorkTime_s`  | `-w/--work-time`   | 1200    | work time per cycle (seconds)        |
+| `-BreakTime_s` | `-b/--break-time`  | 20      | break time per cycle (seconds)       |
+| `-TotalCycles` | `-c/--cycles`      | 30      | total number of cycles               |
+| `-Gentle`      | `-g/--gentle`      | off     | toast instead of popup               |
+| —              | `--eye-check`      | on      | bottom-right eye-comfort toast       |
+| —              | `--no-eye-check`   | —       | disable the eye-comfort toast        |
+| —              | `--popup-timeout`  | 30      | auto-close the popup after N seconds |
 
 ## Notes
 
@@ -122,7 +122,12 @@ python rest_reminder.py -h                           # full help
 - Gentle mode is best-effort: if the Windows toast API is unavailable (Python) or
   BurntToast is missing (PowerShell), the script prints a notice and falls back to the
   topmost popup rather than failing.
-- The eye-comfort check only exists in the Python implementation. The legacy
+- Windows' foreground lock can leave a freshly started process without foreground
+  rights. The popup is then visible and topmost but never receives keystrokes, so
+  **Enter may not dismiss it** — click OK, or rely on the 30-second auto-close (use
+  `--popup-timeout 0` to disable the auto-close, at which point a click is the only
+  way out).
+- The eye-comfort toast only exists in the Python implementation. The legacy
   PowerShell script is frozen and will not get it.
 - A running countdown is shown in the console (`Write-Progress` in PowerShell, an
   in-place `\r` line in Python).
