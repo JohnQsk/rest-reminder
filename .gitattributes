@@ -1,0 +1,15 @@
+# Normalize all text files to LF in the repository, and check out LF by
+# default. This keeps the Python shebang working on Linux/macOS checkouts.
+* text=auto eol=lf
+
+# Ensure these are always treated as text
+*.py   text eol=lf
+*.md   text eol=lf
+*.ps1  text eol=crlf
+*.txt  text eol=lf
+
+# Binary assets
+*.png  binary
+*.jpg  binary
+*.gif  binary
+*.ico  binary
