@@ -9,15 +9,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
-- **Notifications hid Quake-mode terminals.** Reported against Windows Terminal
-  toggled with <kbd>Win</kbd>+<kbd>`</kbd>: every eye check made the terminal
-  disappear. The notification helper spawns a PowerShell child, and
+- **Notifications hid Quake-mode terminals** ([#1]). Reported against Windows
+  Terminal toggled with <kbd>Win</kbd>+<kbd>`</kbd>: every eye check made the
+  terminal disappear. The notification helper spawns a PowerShell child, and
   `-WindowStyle Hidden` only controls how that child's console is *shown* — the
   process still created and briefly activated a console, stealing the
   foreground. A Quake-mode window hides itself as soon as it loses the
   foreground, so the terminal vanished on every reminder. The child is now
   created with `CREATE_NO_WINDOW` plus an explicit hidden `STARTUPINFO`, so no
-  console is allocated at all.
+  console is allocated at all. **Verified by the reporter** in a Quake-mode
+  terminal after the fix.
 - If a notification cannot be sent, the eye check is now echoed on the console
   instead of being silently dropped.
 
@@ -176,6 +177,7 @@ First public release.
 
 [1.3.1]: https://github.com/JohnQsk/rest-reminder/releases/tag/v1.3.1
 [1.3.0]: https://github.com/JohnQsk/rest-reminder/releases/tag/v1.3.0
+[#1]: https://github.com/JohnQsk/rest-reminder/issues/1
 [1.2.0]: https://github.com/JohnQsk/rest-reminder/releases/tag/v1.2.0
 [1.1.0]: https://github.com/JohnQsk/rest-reminder/releases/tag/v1.1.0
 [1.0.0]: https://github.com/JohnQsk/rest-reminder/releases/tag/v1.0.0

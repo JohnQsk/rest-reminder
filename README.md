@@ -85,7 +85,9 @@ run this script inside a **Quake-mode terminal** (Windows Terminal toggled with
 a child console — even one started with `-WindowStyle Hidden`, which only changes
 how the window is *shown* — would activate, push the terminal out of the
 foreground, and make it vanish every time a notification fired. `CREATE_NO_WINDOW`
-stops the child from allocating a console at all.
+stops the child from allocating a console at all. Fixed in v1.3.1 and confirmed
+by the reporter in a Quake-mode terminal
+([issue #1](https://github.com/JohnQsk/rest-reminder/issues/1)).
 
 > This is a self-report prompt, not a diagnosis. If your eyes stay sore or your
 > vision stays blurry, see an eye-care professional.
