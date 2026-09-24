@@ -74,7 +74,18 @@ still appears in the bottom-right corner. The toast path is kept behind
 > per-app notification settings) and never reports that anything was painted, so
 > the script reports success as *"acceptance unconfirmed"* rather than as proof
 > that a window appeared. If you see nothing, check those settings first — not
-> the Python code.
+> the Python code. When a notification cannot be sent at all, the eye check is
+> echoed on the console instead of being dropped.
+
+### Quake-mode terminals
+
+The notification helper is spawned with `CREATE_NO_WINDOW`. This matters if you
+run this script inside a **Quake-mode terminal** (Windows Terminal toggled with
+<kbd>Win</kbd>+<kbd>`</kbd>), which hides itself whenever it loses the foreground:
+a child console — even one started with `-WindowStyle Hidden`, which only changes
+how the window is *shown* — would activate, push the terminal out of the
+foreground, and make it vanish every time a notification fired. `CREATE_NO_WINDOW`
+stops the child from allocating a console at all.
 
 > This is a self-report prompt, not a diagnosis. If your eyes stay sore or your
 > vision stays blurry, see an eye-care professional.

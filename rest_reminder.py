@@ -45,7 +45,11 @@ Notes:
     - Notifications are best-effort. Windows may suppress them (Focus Assist /
       Do Not Disturb) and gives no confirmation that anything was painted, so a
       successful call is reported as "acceptance unconfirmed" rather than as
-      proof that a window appeared.
+      proof that a window appeared. If a notification cannot be sent at all,
+      the eye check is repeated on the console instead of being dropped.
+    - The notification helper is spawned with CREATE_NO_WINDOW, because a child
+      console would steal the foreground and hide Quake-mode terminals
+      (Windows Terminal toggled with Win+`).
     - Close the popup with the OK button or the Enter key. The popup cannot be
       hidden behind other windows while it is open; use -g to avoid it.
     - Stop the script at any time with Ctrl+C.
@@ -115,6 +119,12 @@ def _run_ps(snippet, title, message, seconds=None):
 
     ok=True means PowerShell accepted the call. Windows gives no confirmation
     that anything was painted, so the detail says so explicitly.
+
+    The child process is created with CREATE_NO_WINDOW and an explicit hidden
+    STARTUPINFO. `-WindowStyle Hidden` alone is not enough: PowerShell still
+    creates (and briefly activates) a console window, which steals the
+    foreground and makes Quake-mode windows — Windows Terminal toggled with
+    Win+` disappears because it hides when it loses focus.
     """
     if not sys.platform.startswith("win"):
         return False, "Windows notifications require Windows"
@@ -124,14 +134,23 @@ def _run_ps(snippet, title, message, seconds=None):
     env["RR_MESSAGE"] = message
     if seconds is not None:
         env["RR_SECONDS"] = str(seconds)
+
+    kwargs = {}
+    if hasattr(subprocess, "CREATE_NO_WINDOW"):
+        kwargs["creationflags"] = subprocess.CREATE_NO_WINDOW
+        startupinfo = subprocess.STARTUPINFO()
+        startupinfo.dwFlags |= subprocess.STARTF_USESHOWWINDOW
+        startupinfo.wShowWindow = subprocess.SW_HIDE
+        kwargs["startupinfo"] = startupinfo
+
     try:
         result = subprocess.run(
-            ["powershell", "-NoProfile", "-NonInteractive",
-             "-WindowStyle", "Hidden", "-Command", snippet],
+            ["powershell", "-NoProfile", "-NonInteractive", "-Command", snippet],
             capture_output=True,
             text=True,
             timeout=60,
             env=env,
+            **kwargs,
         )
     except (OSError, subprocess.SubprocessError) as exc:
         return False, f"could not run PowerShell: {exc}"
@@ -268,6 +287,10 @@ def run_work_period(seconds, eye_interval, eye_method="balloon", eye_seconds=8,
             )
             print(f"\r  [eye check at {elapsed // 60}m{elapsed % 60:02d}s] "
                   f"{'ok' if ok else 'FAILED'} - {detail}")
+            if not ok:
+                # Never lose the reminder silently: the console is the last resort.
+                print("  !! EYE CHECK: how do your eyes feel? "
+                      "Look 20 feet away for 20 seconds.")
             # Keep an absolute cadence even if this iteration ran long.
             next_eye += eye_interval
 
