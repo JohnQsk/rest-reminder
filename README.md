@@ -24,14 +24,40 @@ of work, a short 20-second break (with 30 cycles ≈ 10 hours of coverage).
 
 ## Implementations
 
-Available in two equivalent implementations:
-
-- `rest_reminder.ps1` — PowerShell (no dependencies)
-- `rest_reminder.py` — Python 3 with `tkinter` (standard library only)
+- `rest_reminder.py` — Python 3 with `tkinter` (standard library only).
+  **Maintained**: this is the implementation that receives new features.
+- [`legacy/rest_reminder.ps1`](legacy/rest_reminder.ps1) — PowerShell, no
+  dependencies. **Legacy and frozen**: it keeps working exactly as documented
+  below, but it will not gain new functionality and it has **no eye-comfort
+  check**. Kept for anyone who wants a PowerShell-only, install-nothing option.
 
 Both follow the same schedule and the same popup behaviour. Gentle mode differs
-slightly: PowerShell uses the BurntToast module, Python shells out to the built-in
-WinRT toast API, so neither needs a third-party package.
+slightly: Python shells out to the built-in WinRT toast API, PowerShell uses the
+BurntToast module, so neither needs a third-party package.
+
+## Eye-comfort check (Python)
+
+Every cycle, before the break popup appears, a small borderless notification
+slides into the **bottom-right corner** of the screen and asks *"how do your
+eyes feel?"*:
+
+- **Comfortable** / **Dry / gritty** / **Strained / sore** / **Blurry** —
+  one click answers and closes the window.
+- **Ask me later** — dismissed without recording a feeling.
+
+It is designed to be noticed without being disruptive:
+
+- It **never takes focus**, so it cannot interrupt your typing and does not
+  disturb the countdown running in the console.
+- It **auto-dismisses after 45 seconds**, so an ignored window never piles up;
+  an unanswered window is collapsed before the next cycle's check.
+- Answers print to the console, and pass `--eye-log eyes.csv` to also append
+  them to a CSV file (`timestamp, cycle, feeling, feeling_label, answer`) so you
+  can spot a trend over a day.
+- Disable the whole thing with `--no-eye-check`.
+
+> This is a self-report prompt, not a diagnosis. If your eyes stay sore or your
+> vision stays blurry, see an eye-care professional.
 
 ## The popup problem and how it is solved
 
@@ -54,13 +80,13 @@ behaves like an ordinary window and gentle mode is unavailable.
 
 ## Usage
 
-PowerShell:
+PowerShell (legacy script, run from the repository root):
 
 ```powershell
-.\rest_reminder.ps1                                  # defaults: 20min work, 20s break, 30 cycles
-.\rest_reminder.ps1 -WorkTime_s 1500 -BreakTime_s 30 -TotalCycles 10
-.\rest_reminder.ps1 -Gentle                          # system notification instead of the popup
-.\rest_reminder.ps1 -WorkTime_s 3 -BreakTime_s 2 -TotalCycles 1   # quick test
+.\legacy\rest_reminder.ps1                                        # defaults
+.\legacy\rest_reminder.ps1 -WorkTime_s 1500 -BreakTime_s 30 -TotalCycles 10
+.\legacy\rest_reminder.ps1 -Gentle                                # system notification instead of the popup
+.\legacy\rest_reminder.ps1 -WorkTime_s 3 -BreakTime_s 2 -TotalCycles 1   # quick test
 ```
 
 Python:
@@ -69,18 +95,23 @@ Python:
 python rest_reminder.py                              # defaults
 python rest_reminder.py -w 1500 -b 30 -c 10
 python rest_reminder.py -g                           # system notification instead of the popup
+python rest_reminder.py --eye-log eyes.csv           # record how your eyes feel
+python rest_reminder.py --no-eye-check               # disable the corner check
 python rest_reminder.py -w 3 -b 2 -c 1               # quick test
 python rest_reminder.py -h                           # full help
 ```
 
 ## Parameters
 
-| PowerShell     | Python            | Default | Description                    |
-| -------------- | ----------------- | ------- | ------------------------------ |
-| `-WorkTime_s`  | `-w/--work-time`  | 1200    | work time per cycle (seconds)  |
-| `-BreakTime_s` | `-b/--break-time` | 20      | break time per cycle (seconds) |
-| `-TotalCycles` | `-c/--cycles`     | 30      | total number of cycles         |
-| `-Gentle`      | `-g/--gentle`     | off     | toast instead of popup         |
+| PowerShell     | Python            | Default | Description                        |
+| -------------- | ----------------- | ------- | ---------------------------------- |
+| `-WorkTime_s`  | `-w/--work-time`  | 1200    | work time per cycle (seconds)      |
+| `-BreakTime_s` | `-b/--break-time` | 20      | break time per cycle (seconds)     |
+| `-TotalCycles` | `-c/--cycles`     | 30      | total number of cycles             |
+| `-Gentle`      | `-g/--gentle`     | off     | toast instead of popup             |
+| —              | `--eye-check`     | on      | bottom-right eye-comfort check     |
+| —              | `--no-eye-check`  | —       | disable the eye-comfort check      |
+| —              | `--eye-log PATH`  | none    | append eye-comfort answers to CSV  |
 
 ## Notes
 
@@ -88,14 +119,20 @@ python rest_reminder.py -h                           # full help
   [20-20-20 rule](https://www.aao.org/eye-health/tips-prevention/computer-usage) for
   reducing eye strain. Adjust `-BreakTime_s` / `-b` if you want a longer break.
 - Stop the script at any time with `Ctrl+C`.
-- Gentle mode is best-effort: if BurntToast is missing (PowerShell) or the Windows
-  toast API is unavailable (Python), the script prints a notice and falls back to the
+- Gentle mode is best-effort: if the Windows toast API is unavailable (Python) or
+  BurntToast is missing (PowerShell), the script prints a notice and falls back to the
   topmost popup rather than failing.
+- The eye-comfort check only exists in the Python implementation. The legacy
+  PowerShell script is frozen and will not get it.
 - A running countdown is shown in the console (`Write-Progress` in PowerShell, an
   in-place `\r` line in Python).
-- `rest_reminder.ps1` may be dot-sourced to reuse `Start-RestReminder` without
-  starting a session: `. .\rest_reminder.ps1`.
+- The legacy PowerShell script may be dot-sourced to reuse `Start-RestReminder`
+  without starting a session: `. .\legacy\rest_reminder.ps1`.
 
 ## License
 
 MIT — see [LICENSE](LICENSE).
+
+## Changelog
+
+See [CHANGELOG.md](CHANGELOG.md).

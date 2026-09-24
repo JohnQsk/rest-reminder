@@ -5,6 +5,23 @@ param (
     [switch]$Gentle               # Prefer a system notification over the popup
 )
 
+<#
+.SYNOPSIS
+    LEGACY: Pomodoro-style rest reminder (PowerShell).
+
+.DESCRIPTION
+    Superseded by rest_reminder.py in the repository root, which is the
+    maintained implementation and the only one that receives new features
+    (currently the bottom-right eye-comfort check).
+
+    This script is kept for reference and for anyone who prefers a
+    PowerShell-only, install-nothing option. It is frozen: it still works as
+    documented in the README, but it will not gain new functionality.
+
+    Run it from the repository root:
+        .\legacy\rest_reminder.ps1 -WorkTime_s 3 -BreakTime_s 2 -TotalCycles 1
+#>
+
 function Show-Notification {
     param(
         [Parameter(Mandatory)][string]$Message,
