@@ -5,6 +5,18 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.2.0] - 2026-09-24
+
+### Changed
+
+- The eye-comfort toast now fires on a **cadence of its own, every 5 minutes by
+  default** (`--eye-interval SECONDS`), instead of once per pomodoro cycle. It
+  is raised *during* the work period rather than at the end of it, because the
+  20-20-20 rule is a 20-minute rule for the eyes: with the defaults the nudge
+  now arrives at 5, 10 and 15 minutes instead of once at 20.
+- The cadence stays absolute rather than relative: the next toast is scheduled
+  from the previous one, so a slow iteration cannot make it drift.
+
 ## [1.1.0] - 2026-09-24
 
 ### Changed
@@ -115,5 +127,6 @@ First public release.
   are committed. The only personal data in the repository is the copyright
   holder named in `LICENSE`.
 
+[1.2.0]: https://github.com/JohnQsk/rest-reminder/releases/tag/v1.2.0
 [1.1.0]: https://github.com/JohnQsk/rest-reminder/releases/tag/v1.1.0
 [1.0.0]: https://github.com/JohnQsk/rest-reminder/releases/tag/v1.0.0

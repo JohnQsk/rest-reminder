@@ -2,11 +2,12 @@
 """Pomodoro-style rest reminder with a periodic eye-comfort nudge.
 
 Cycles between work and break periods. When a work period ends, a topmost
-popup reminds you to rest, and a native Windows notification (the bottom-right
-toast) asks how your eyes feel. A 1-second timer re-asserts the popup's topmost
-flag so it climbs back above all windows until you click OK (same trick as the
-legacy PowerShell version: setting topmost is not subject to Windows' foreground
-lock).
+popup reminds you to rest. During the work period, a native Windows
+notification (the bottom-right toast) asks how your eyes feel on a fixed
+cadence — every 5 minutes by default, independently of the cycle length.
+A 1-second timer re-asserts the popup's topmost flag so it climbs back above
+all windows until you click OK (same trick as the legacy PowerShell version:
+setting topmost is not subject to Windows' foreground lock).
 
 The eye-comfort nudge uses the real Windows toast API, not a hand-drawn window:
 it needs no click, fades into the Action Center on its own, and is raised
@@ -17,18 +18,21 @@ Usage:
     python rest_reminder.py -w 1500 -b 30 -c 10  # 25min work, 30s break, 10 cycles
     python rest_reminder.py -w 3 -b 2 -c 1       # quick test run
     python rest_reminder.py -g -w 3 -b 2 -c 1    # no blocking popup at all
+    python rest_reminder.py --eye-interval 600   # eye nudge every 10 minutes
     python rest_reminder.py --no-eye-check       # break popup only
 
 Options:
-    -w, --work-time   work time per cycle, in seconds (default: 1200)
-    -b, --break-time  break time per cycle, in seconds (default: 20)
-    -c, --cycles      total number of cycles (default: 30)
-    -g, --gentle      use a Windows toast for the break reminder too, instead
-                      of the focus-stealing popup (falls back to the popup if
-                      the toast cannot be shown)
-        --eye-check   send the bottom-right eye-comfort notification every
-                      cycle (default: on; use --no-eye-check to disable)
-    -h, --help        show the built-in help message
+    -w, --work-time    work time per cycle, in seconds (default: 1200)
+    -b, --break-time   break time per cycle, in seconds (default: 20)
+    -c, --cycles       total number of cycles (default: 30)
+    -g, --gentle       use a Windows toast for the break reminder too, instead
+                       of the focus-stealing popup (falls back to the popup if
+                       the toast cannot be shown)
+        --eye-check    send the eye-comfort toast on the --eye-interval
+                       cadence (default: on; use --no-eye-check to disable)
+        --eye-interval seconds between eye-comfort toasts during work
+                       (default: 300, i.e. the 20-20-20 rule)
+    -h, --help         show the built-in help message
 
 Notes:
     - Platform: Windows. The topmost re-assertion trick relies on Windows'
@@ -189,6 +193,37 @@ def countdown(seconds, activity):
     print()
 
 
+def run_work_period(seconds, eye_interval, activity="Work countdown"):
+    """Count down a work period, raising an eye-comfort toast on a fixed cadence.
+
+    `eye_interval` is independent of the cycle length: with the defaults the
+    work period is 20 minutes and the toast fires every 5, 10 and 15 minutes.
+    That is the point — the 20-20-20 rule is a 20-minute rule for the *eyes*,
+    so it should not stretch just because the pomodoro got longer.
+    """
+    next_eye = eye_interval if eye_interval > 0 else None
+    for sec in range(seconds, 0, -1):
+        elapsed = seconds - sec
+        print(f"\r{activity}: {sec:4d}s remaining", end="", flush=True)
+
+        if next_eye is not None and elapsed >= next_eye:
+            ok, detail = show_toast(
+                "How do your eyes feel? Look 20 feet away for 20 seconds, "
+                "and blink deliberately.",
+                "Eye check",
+            )
+            if ok:
+                print(f"\r  [eye check at {elapsed // 60}m{elapsed % 60:02d}s] "
+                      f"{detail}")
+            else:
+                print(f"\r  [eye check FAILED] {detail}")
+            # Keep an absolute cadence even if this iteration ran long.
+            next_eye += eye_interval
+
+        time.sleep(1)
+    print()
+
+
 def main():
     parser = argparse.ArgumentParser(
         description="Pomodoro-style rest reminder with a topmost break popup "
@@ -198,6 +233,7 @@ def main():
                "  python rest_reminder.py -w 1500 -b 30 -c 10 # 25min work, 30s break, 10 cycles\n"
                "  python rest_reminder.py -w 3 -b 2 -c 1      # quick test run\n"
                "  python rest_reminder.py -g -w 3 -b 2 -c 1   # toasts only, no popup\n"
+               "  python rest_reminder.py --eye-interval 600  # eye nudge every 10min\n"
                "  python rest_reminder.py --no-eye-check      # break popup only",
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
@@ -211,10 +247,13 @@ def main():
                         help="use a Windows toast for the break reminder instead of "
                              "the topmost popup (falls back to the popup if unsupported)")
     parser.add_argument("--eye-check", dest="eye_check", action="store_true",
-                        default=True, help="send the bottom-right eye-comfort toast "
-                                           "every cycle (default: on)")
+                        default=True, help="send the eye-comfort toast on the "
+                                           "--eye-interval cadence (default: on)")
     parser.add_argument("--no-eye-check", dest="eye_check", action="store_false",
                         help="disable the eye-comfort toast")
+    parser.add_argument("--eye-interval", type=int, default=300, metavar="SECONDS",
+                        help="seconds between eye-comfort toasts during work "
+                             "(default: 300, i.e. the 20-20-20 rule)")
     parser.add_argument("--popup-timeout", type=int, default=30, metavar="SECONDS",
                         help="auto-close the break popup after SECONDS; 0 keeps it "
                              "open until dismissed (default: 30)")
@@ -231,15 +270,7 @@ def main():
         for i in range(1, args.cycles + 1):
             print(f"\n=== Work Cycle {i}/{args.cycles} ===")
             print(f"Working... (next break in {args.work_time / 60:g} minutes)")
-            countdown(args.work_time, "Work countdown")
-
-            if args.eye_check:
-                ok, detail = show_toast(
-                    f"Cycle {i}: how do your eyes feel? "
-                    "Blink, then look 20 feet away for 20 seconds.",
-                    "Eye check",
-                )
-                print(f"Eye-comfort notification: {'ok' if ok else 'failed'} - {detail}")
+            run_work_period(args.work_time, args.eye_interval if args.eye_check else 0)
 
             message = (
                 f"Work session complete! Please take a {args.break_time} second break.\n"
